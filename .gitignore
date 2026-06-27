@@ -25,6 +25,11 @@ brain/
 .DS_Store
 Thumbs.db
 
+# Logs
+*.log
+uvicorn.log
+uvicorn_err.log
+
 # Debug / test files
 debug_*.py
 test_*.py
