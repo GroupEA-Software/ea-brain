@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Environment
+.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Brain data (entire tree — personal notes, vectors, images, inbox)
+brain/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug / test files
+debug_*.py
+test_*.py
+fix.ps1
+*.ps1
+phone.ps1
+portable.ps1
+start.ps1
+graph_debug_data.json
+test_memory.py
+# Local AI runtime state
+.atl/
+
+# Personal knowledge base (study notes, university materials, books)
+01 - */
+02 - */
+03 - */
+04 - */
+05 - */
+06 - */
+07 - */
+
+# Personal AI agent tooling (not part of EA-Brain source)
+.agents/
+AGENTS.md
+GEMINI.md
+OPENCODE.md
+skills-lock.json
+
+# SDD planning artifacts (internal development process)
+openspec/

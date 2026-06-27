@@ -7,7 +7,9 @@ and auto-generated connections across ALL sources.
 """
 
 import re
-from fastapi import APIRouter
+import time
+import asyncio
+from fastapi import APIRouter, Query
 from backend.brain_manager import list_notes, get_note, get_connections_files, \
     list_knowledge, get_knowledge_note
 
@@ -33,40 +35,61 @@ def _build_note_map(notes: list) -> dict:
     return slug_map
 
 
-@router.get("/brain/graph")
-async def api_brain_graph():
-    # ── 1. Load baul notes ──
-    baul_notes = await list_notes()
-    all_content = {}
-    slug_map = {}
+# Simple cache with 30s TTL
+_graph_cache = {"data": None, "timestamp": 0.0, "ttl": 30}
 
-    for n in baul_notes:
-        note = await get_note(n["filename"])
-        if note:
-            all_content[n["filename"]] = note["content"]
+
+@router.get("/brain/graph")
+async def api_brain_graph(
+    limit: int = Query(500, ge=10, le=2000),
+    min_weight: float = Query(0.15, ge=0.0, le=1.0),
+):
+    """Return knowledge graph nodes and edges with caching, concurrency, and limits."""
+    # ── Cache check: 30s TTL ──
+    now = time.time()
+    if _graph_cache["data"] and now - _graph_cache["timestamp"] < _graph_cache["ttl"]:
+        return _graph_cache["data"]
+
+    # ── 1. Load baul notes concurrently ──
+    baul_notes = await list_notes()
+    tasks = [get_note(n["filename"]) for n in baul_notes]
+    notes_data = await asyncio.gather(*tasks)
+
+    all_content = {}
+    for n, note_data in zip(baul_notes, notes_data):
+        if note_data:
+            all_content[n["filename"]] = note_data["content"]
 
     slug_map = _build_note_map(baul_notes)
 
-    # ── 2. Load knowledge notes ──
+    # ── 2. Load knowledge notes (concurrently, all of them) ──
     knowledge_cats = await list_knowledge()
-    knowledge_nodes = []
+    knowledge_files = []
     for cat in knowledge_cats:
         for kf in cat["files"]:
-            knote = await get_knowledge_note(kf["filename"])
-            if knote:
-                all_content[kf["filename"]] = knote["content"]
-                slug_map[_norm(kf["filename"])] = kf["filename"]
-                slug_map[kf["title"].lower()] = kf["filename"]
-                stem = kf["filename"].split("/")[-1].replace(".md", "").lower()
-                slug_map[stem] = kf["filename"]
+            knowledge_files.append((cat, kf))
+    # No artificial limit — user controls via ?limit= param
 
-                knowledge_nodes.append({
-                    "id": _norm(kf["filename"]),
-                    "label": kf["title"],
-                    "folder": cat["name"],
-                    "group": "knowledge",
-                    "size": max(2, min(20, (max(kf.get("size", 0), 100) / 300))),
-                })
+    k_tasks = [get_knowledge_note(kf["filename"]) for _, kf in knowledge_files]
+    k_notes_data = await asyncio.gather(*k_tasks)
+
+    knowledge_nodes = []
+    for (cat, kf), knote in zip(knowledge_files, k_notes_data):
+        if not knote:
+            continue
+        all_content[kf["filename"]] = knote["content"]
+        slug_map[_norm(kf["filename"])] = kf["filename"]
+        slug_map[kf["title"].lower()] = kf["filename"]
+        stem = kf["filename"].split("/")[-1].replace(".md", "").lower()
+        slug_map[stem] = kf["filename"]
+
+        knowledge_nodes.append({
+            "id": _norm(kf["filename"]),
+            "label": kf["title"],
+            "folder": cat["name"],
+            "group": "knowledge",
+            "size": max(2, min(20, (max(kf.get("size", 0), 100) / 300))),
+        })
 
     # ── 3. Build nodes ──
     nodes = []
@@ -104,12 +127,14 @@ async def api_brain_graph():
                     edge_set.add(edge_key)
                     edges.append({"source": source_id, "target": target_id, "weight": 1.0})
 
-    # ── 5. Build edges from auto-connections ──
+    # ── 5. Build edges from auto-connections (filter by min_weight) ──
     conn_files = await get_connections_files()
     for conn_file in conn_files:
         content = conn_file["content"]
         sim_match = re.search(r'Similitud:\s*([\d.]+)', content)
         weight = float(sim_match.group(1)) if sim_match else 0.6
+        if weight < min_weight:
+            continue
         links = re.findall(r'\[\[([^\]]+)\]\]', content)
         for i in range(0, len(links) - 1, 2):
             if i + 1 < len(links):
@@ -121,7 +146,22 @@ async def api_brain_graph():
                         edge_set.add(edge_key)
                         edges.append({"source": s, "target": t, "weight": weight})
 
-    return {"nodes": nodes, "edges": edges}
+    # ── 6. Enforce node limit: keep top N by connected edge count ──
+    if len(nodes) > limit:
+        edge_count = {}
+        for e in edges:
+            edge_count[e["source"]] = edge_count.get(e["source"], 0) + 1
+            edge_count[e["target"]] = edge_count.get(e["target"], 0) + 1
+        nodes.sort(key=lambda n: edge_count.get(n["id"], 0), reverse=True)
+        keep_ids = set(n["id"] for n in nodes[:limit])
+        nodes = [n for n in nodes if n["id"] in keep_ids]
+        edges = [e for e in edges if e["source"] in keep_ids and e["target"] in keep_ids]
+
+    # ── 7. Cache and return ──
+    result = {"nodes": nodes, "edges": edges}
+    _graph_cache["data"] = result
+    _graph_cache["timestamp"] = now
+    return result
 
 
 @router.get("/wikilinks/{filename:path}")

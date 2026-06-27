@@ -69,7 +69,7 @@ export default function Repos({ onDone }) {
   const [message, setMessage] = useState('');
 
   const loadRepos = async () => {
-    try { setRepos(await getRepos()); } catch {}
+    try { setRepos((await getRepos()).repos || []); } catch {}
   };
 
   useEffect(() => { loadRepos(); }, []);

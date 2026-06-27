@@ -220,33 +220,122 @@ def _update_personality(p: dict, message: str, answer: str, lang: str, topics: l
 # QUIZ ENGINE
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _build_quiz_prompt(topic: str, context: str, lang: str) -> str:
-    """Build a prompt that asks the LLM to generate a quiz from brain content."""
-    if lang == "es":
-        return f"""Actua como un tutor que prepara un cuestionario. Basandote ESTRICTAMENTE en
-el contenido del cerebro del usuario que se provee abajo, genera UN CUESTIONARIO de 5 preguntas.
+_COUNT_PATTERN = re.compile(
+    r"(\d+)\s*(preguntas?|questions?|items?|reactivos?|ejercicios?|"
+    r"puntos?|points?|items?|temas?|topics?|cap[ií]tulos?|chapters?|"
+    r"hojas?|pages?|p[aá]ginas?)",
+    re.IGNORECASE,
+)
 
-REGLAS:
-1. Cada pregunta debe tener 4 opciones (a, b, c, d)
-2. Inclui la respuesta correcta al final
-3. Las preguntas deben basarse SOLO en el contenido del cerebro, no inventes nada
-4. Si el contenido no alcanza para 5 preguntas, hace las que se puedan
-5. Formato claro: separa cada pregunta, muestra opciones, y al final las respuestas
+
+def _extract_quantity(text: str) -> int:
+    """Extract requested quantity from user query; return 0 if no explicit count."""
+    m = _COUNT_PATTERN.search(text)
+    if m:
+        return max(1, min(int(m.group(1)), 500))
+    return 0
+
+
+def _extract_topic(message: str) -> str:
+    """Extract a clean topic from the user message for filename use."""
+    # Remove common prefixes
+    cleaned = re.sub(
+        r"^(hac(e|ed|erme|ete|er)\s*(un|una|me)?|crea\s*(me)?|genera\s*(me)?|"
+        r"dame|give\s*me|make|generate|create|necesito|"
+        r"quiero|prepara\s*(me)?|prepare|write|escribe\s*(me)?|"
+        r"tirame|pasame|mandame)\s+",
+        "", message, flags=re.IGNORECASE
+    ).strip()
+    # Remove trailing punctuation
+    cleaned = cleaned.rstrip(".,!?;:")
+    # Truncate to reasonable length
+    cleaned = cleaned[:80]
+    # Sanitize for filename — keep word chars, spaces, dashes, and common Spanish
+    cleaned = re.sub(r'[^\w\s-]', '', cleaned).strip()
+    cleaned = re.sub(r'\s+', '-', cleaned).lower()
+    return cleaned or "quiz"
+
+
+def _extract_search_keywords(message: str) -> str:
+    """Extract clean topic keywords from a quiz request.
+
+    Strategy: find the quantity pattern (e.g. "100 preguntas de"), then take
+    everything after it as the topic. This is much more robust than trying to
+    strip prefixes from arbitrary positions.
+    """
+    # 1. Find the quantity pattern
+    qty_match = _COUNT_PATTERN.search(message)
+    if qty_match:
+        # Everything after the quantity match IS the topic
+        text = message[qty_match.end():]
+        # Strip connector words: de, sobre, en, about, on, of, etc.
+        text = re.sub(r'^(sobre|de|en|about|on|of)\s+', '', text.strip(), flags=re.IGNORECASE)
+        # Strip trailing fluff clauses (with or without leading comma)
+        text = re.sub(
+            r'(?i)(?:[,;]?\s*)(en\s+base\s+a|de\s+acuerdo\s+a|teniendo\s+en\s+cuenta|'
+            r'considerando|basado\s+en|por\s+favor|please|gracias|thanks).*$',
+            '', text
+        ).strip()
+        # Strip trailing punctuation
+        text = text.rstrip(".,!?;:")
+        if text and len(text) > 2:
+            return text
+
+    # 2. Fallback: strip known prefixes, take what remains
+    text = re.sub(
+        r"^(hac(e|ed|erme|ete|er)\s*(un|una|me)?|crea\s*(me)?|genera\s*(me)?|"
+        r"dame|give\s*me|make|generate|create|necesito|"
+        r"quiero|prepara\s*(me)?|prepare|write|escribe\s*(me)?|"
+        r"tirame|pasame|mandame)\s+",
+        "", message, flags=re.IGNORECASE
+    ).strip()
+    text = re.sub(
+        r"(?i)(?:[,;]?\s*)(en\s+base\s+a|de\s+acuerdo\s+a|teniendo\s+en\s+cuenta|"
+        r"considerando|por\s+favor|please|gracias|thanks).*$",
+        '', text
+    ).strip()
+    text = text.rstrip(".,!?;:")
+    return text or message
+
+
+def _sanitize_filename(text: str, default: str = "documento") -> str:
+    """Turn any text into a safe, readable filename."""
+    safe = re.sub(r'[^\w\s-]', '', text).strip()
+    safe = re.sub(r'\s+', '-', safe).lower()
+    safe = re.sub(r'-+', '-', safe).strip('-')
+    return safe[:100] or default
+
+
+def _build_quiz_prompt(topic: str, context: str, lang: str, count: int = 5) -> str:
+    """Build a prompt that asks the LLM to generate a quiz from brain content."""
+    qty = count if count > 0 else 5
+    if lang == "es":
+        return f"""Actua como un tutor que prepara un cuestionario AUTO-CONTENIDO. Basandote ESTRICTAMENTE en
+el contenido del cerebro que se provee abajo, genera UN CUESTIONARIO DE {qty} PREGUNTAS.
+
+REGLAS ESTRICTAS:
+1. GENERA TODO el contenido en tu respuesta - {qty} preguntas COMPLETAS con sus 4 opciones cada una
+2. NO digas "revisa tus notas", "mira el archivo", "consulta la nota" — TODO debe estar aqui
+3. Inclui la respuesta correcta de cada pregunta al final en una seccion de RESPUESTAS
+4. Las preguntas deben basarse en el contenido del cerebro, pero el archivo es AUTO-CONTENIDO
+5. Si el contenido no alcanza para {qty} preguntas, hace las que se puedan
+6. Formato claro: separa cada pregunta, muestra opciones A B C D, y al final las respuestas
 
 Tema solicitado: {topic}
 
 Contenido del cerebro:
 {context}"""
     else:
-        return f"""Act as a tutor creating a quiz. Based STRICTLY on the user's brain
-content provided below, generate a 5-question quiz.
+        return f"""Act as a tutor creating a SELF-CONTAINED quiz. Based STRICTLY on the user's brain
+content provided below, generate a {qty}-QUESTION quiz.
 
-RULES:
-1. Each question must have 4 options (a, b, c, d)
-2. Include the correct answer at the end
-3. Questions must be based ONLY on brain content, don't invent
-4. If content isn't enough for 5 questions, do what you can
-5. Clear format: separate each question, show options, answers at the end
+STRICT RULES:
+1. GENERATE ALL content in your response — {qty} COMPLETE questions with 4 options each
+2. DO NOT say "check your notes", "see the file", "refer to the article" — EVERYTHING must be here
+3. Include the correct answer for each question at the end in an ANSWERS section
+4. Questions must be based on brain content, but the file is SELF-CONTAINED
+5. If content isn't enough for {qty} questions, do what you can
+6. Clear format: separate each question, show options A B C D, answers at the end
 
 Requested topic: {topic}
 
@@ -394,8 +483,8 @@ Siempre responde en el idioma en que te hablen.
 - Cuando uses informacion de la web, CITA LA URL DE ORIGEN.
 - Si no encuentras nada util en ningun lado, dimelo con ingenio seco y sugiere agregar contenido.
 
-## CUESTIONARIOS
-Si el usuario pide un quiz, test, examen o evaluacion, genera UN CUESTIONARIO estructurado de 5 preguntas con opciones basado ESTRICTAMENTE en el contenido del cerebro. Incluye respuestas al final.
+## CUESTIONARIOS (AUTO-CONTENIDOS)
+Si el usuario pide un quiz, test, examen o evaluacion, genera UN CUESTIONARIO estructurado con opciones basado ESTRICTAMENTE en el contenido del cerebro. Respeta la cantidad que pida (5 por defecto, mas si especifica). El cuestionario DEBE SER AUTO-CONTENIDO: todo el contenido (preguntas, opciones, respuestas) debe estar en tu respuesta. NO digas "revisa tus notas" o "mira el archivo".
 
 ## APRENDIZAJE AUTONOMO
 - Si encuentras informacion util en la web que NO esta en el cerebro, sugiere guardarla.
@@ -440,8 +529,8 @@ Always respond in the language you're addressed in.
 - When using web info, CITE THE SOURCE URL.
 - If nothing useful anywhere, say so with wit and suggest adding content.
 
-## QUIZZES
-If the user asks for a quiz, test, exam or evaluation, generate a STRUCTURED 5-question quiz with options based STRICTLY on brain content. Include answers at the end.
+## QUIZZES (SELF-CONTAINED)
+If the user asks for a quiz, test, exam or evaluation, generate a STRUCTURED quiz with options based STRICTLY on brain content. Respect the quantity requested (5 by default, more if specified). The quiz MUST BE SELF-CONTAINED: all content (questions, options, answers) must be in your response. DO NOT say "check your notes" or "see the file".
 
 ## AUTONOMOUS LEARNING
 - If you find useful web info NOT in the brain, suggest saving it.
@@ -495,7 +584,8 @@ def _call_openai_compat(api_key: str, base_url: str, model: str,
     """Generic OpenAI-compatible chat completion call."""
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=api_key, base_url=base_url, timeout=60.0)
+        req_timeout = kwargs.pop("req_timeout", 120.0)
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=req_timeout)
         max_tokens = kwargs.get("max_tokens", 1024)
         resp = client.chat.completions.create(
             model=model,
@@ -531,10 +621,15 @@ def _call_gemini(messages: list) -> Optional[str]:
         return None
 
 
-def _query_llm(prompt: str, context: str, personality: dict,
-               history: list = None, web_context: str = "",
-               max_tokens: int = 1024) -> str:
-    """Query LLM: DeepSeek V4 Flash Free -> Groq -> Gemini -> Ollama -> local."""
+async def _query_llm(prompt: str, context: str, personality: dict,
+                     history: list = None, web_context: str = "",
+                     max_tokens: int = 1024,
+                     req_timeout: float = 120.0) -> str:
+    """Query LLM async: DeepSeek V4 Flash Free -> Groq -> Gemini -> Ollama -> local.
+    
+    Runs HTTP calls in a thread executor so the event loop stays responsive
+    and asyncio.wait_for timeouts work properly.
+    """
     lang = _detect_language(prompt)
     system_prompt = _build_butler_prompt(lang, context, web_context, personality)
 
@@ -544,35 +639,47 @@ def _query_llm(prompt: str, context: str, personality: dict,
             messages.append({"role": msg["role"], "content": msg["content"]})
     messages.append({"role": "user", "content": prompt})
 
-    kwargs = {"max_tokens": max_tokens, "temperature": 0.7}
+    kwargs = {"max_tokens": max_tokens, "temperature": 0.7, "req_timeout": req_timeout}
+    loop = asyncio.get_event_loop()
 
     # 1. DeepSeek V4 Flash Free via OpenCode Zen
     if OPENCODE_API_KEY:
-        result = _call_openai_compat(
-            OPENCODE_API_KEY, OPENCODE_BASE_URL, OPENCODE_MODEL,
-            messages, **kwargs
+        result = await loop.run_in_executor(
+            None,
+            lambda: _call_openai_compat(
+                OPENCODE_API_KEY, OPENCODE_BASE_URL, OPENCODE_MODEL,
+                messages, **kwargs
+            )
         )
         if result:
             return result
 
     # 2. Groq
     if GROQ_API_KEY:
-        result = _call_openai_compat(
-            GROQ_API_KEY, GROQ_BASE_URL, GROQ_MODEL, messages, **kwargs
+        kwargs["req_timeout"] = req_timeout
+        result = await loop.run_in_executor(
+            None,
+            lambda: _call_openai_compat(
+                GROQ_API_KEY, GROQ_BASE_URL, GROQ_MODEL, messages, **kwargs
+            )
         )
         if result:
             return result
 
     # 3. Gemini
-    result = _call_gemini(messages)
+    result = await loop.run_in_executor(None, _call_gemini, messages)
     if result:
         return result
 
     # 4. Ollama (local)
     if OLLAMA_BASE_URL:
-        result = _call_openai_compat(
-            "ollama", OLLAMA_BASE_URL + "/v1", OLLAMA_MODEL,
-            messages, **kwargs
+        kwargs["req_timeout"] = max(req_timeout, 30.0)
+        result = await loop.run_in_executor(
+            None,
+            lambda: _call_openai_compat(
+                "ollama", OLLAMA_BASE_URL + "/v1", OLLAMA_MODEL,
+                messages, **kwargs
+            )
         )
         if result:
             return result
@@ -604,6 +711,108 @@ def _local_response(query: str, context: str, lang: str = "es",
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# BATCH QUIZ GENERATION
+# ══════════════════════════════════════════════════════════════════════════════
+
+_CHUNK_SIZE = 25  # questions per LLM call — balances response speed vs timeout safety
+
+
+async def generate_quiz_batch(topic: str, total_count: int, lang: str = "es",
+                               personality: dict = None,
+                               search_query: str = None) -> str:
+    """Generate a large quiz in chunks, combining all parts into one document.
+
+    Splits into batches of _CHUNK_SIZE so no single LLM call exceeds timeout.
+    Each batch gets a numbered range (e.g. "questions 26-50 of 100").
+    Results are assembled into a single downloadable markdown document.
+
+    Args:
+        topic: Display topic for prompts and header (e.g. "algoritmos y c#")
+        total_count: Number of questions to generate
+        lang: Language code
+        personality: Optional personality state
+        search_query: Optional separate query for brain search (defaults to topic)
+    """
+    if personality is None:
+        personality = _load_personality()
+
+    query = search_query or topic
+
+    # Search brain for relevant content
+    results = await _hybrid_search(query, k=5)
+
+    # Build context from brain content — use ALL available content for the topic
+    context_lines = []
+    if results:
+        for r in results:
+            content = _get_note_content(r["filename"])
+            if content:
+                context_lines.append(f"## [[{r['filename']}]]\n{content[:2000]}\n")
+    context = "\n---\n".join(context_lines)
+    if not context:
+        context = "No hay contenido relevante en el cerebro." if lang == "es" else "No relevant brain content yet."
+
+    parts = []
+    batches = list(range(0, total_count, _CHUNK_SIZE))
+
+    for batch_idx in batches:
+        start = batch_idx + 1
+        end = min(batch_idx + _CHUNK_SIZE, total_count)
+        count_in_batch = end - start + 1
+
+        # Precise prompt: tell the model exactly what range and topic
+        prompt = f"""Generate questions {start}–{end} of a {total_count}-question multiple-choice quiz about: {topic}
+
+REQUIREMENTS (read carefully):
+- Generate EXACTLY {count_in_batch} complete multiple-choice questions, numbered {start} through {end}
+- EVERY question MUST be ONLY about: {topic}. Do NOT generate questions about any other subject.
+- Each question has exactly 4 options (A, B, C, D) — never more, never fewer
+- Mark the correct answer on its own line like: "**Respuesta correcta:** B"
+- Base ALL questions STRICTLY on the brain content provided below
+- Output ONLY the questions — no introduction, no explanations, no closing notes — just the numbered questions
+
+TOPIC TO COVER: {topic}
+
+BRAIN CONTENT:
+{context[:4000]}"""
+
+        result = await _query_llm(
+            prompt, context, personality, None, "",
+            max_tokens=min(1500 + count_in_batch * 40, 3000),
+            req_timeout=45.0,  # 45s per chunk for ~25 questions — generous for 3000 tokens
+        )
+
+        if result and len(result) > 30:
+            parts.append(result)
+        else:
+            # First attempt returned empty — try again with simpler prompt
+            fallback = (
+                f"Write {count_in_batch} multiple-choice quiz questions about {topic}. "
+                f"Number them {start} through {end}. Each question has 4 options (A-D) "
+                f"and mark the correct answer. Base questions on this content:\n\n{context[:3000]}"
+            )
+            result2 = await _query_llm(
+                fallback, "", personality, None, "",
+                max_tokens=min(1500 + count_in_batch * 40, 3000),
+                req_timeout=45.0,
+            )
+            if result2 and len(result2) > 50:
+                parts.append(result2)
+
+        # Brief pause between chunks to respect rate limits
+        await asyncio.sleep(0.3)
+
+    if not parts:
+        return (f"*No se pudo generar el cuestionario sobre «{topic}» en este momento.*\n\n"
+                f"Probá con un tema más específico o intentá de nuevo." if lang == "es"
+                else f"*Could not generate the quiz about «{topic}» at this time.*")
+
+    header = f"# Quiz: {topic.title()}\n\n**Total de preguntas: {total_count}**\n\n---\n\n"
+    combined = header + "\n\n".join(parts)
+    return combined
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN ASK FUNCTION
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -622,6 +831,7 @@ async def ask(message: str, history: list = None, k: int = 5) -> dict:
     lang = _detect_language(message)
     personality = _load_personality()
     is_quiz = bool(_QUIZ_PATTERNS.search(message)) and not _NOTE_REQUEST_PATTERNS.search(message)
+    qty = _extract_quantity(message)
 
     # ── Phase 1: Detect intent ──
     specific_note_content = None
@@ -670,11 +880,21 @@ async def ask(message: str, history: list = None, k: int = 5) -> dict:
                     break
 
     wants_detail = bool(_MORE_DETAIL_PATTERNS.search(message))
-    max_tokens = 2048 if (wants_detail or specific_note_content or is_quiz) else 1024
+    # Scale tokens for large generation requests (_extract_quantity is checked above)
+    base_tokens = 2048 if (wants_detail or specific_note_content or is_quiz) else 1024
+    if qty > 0:
+        # ~40 tokens per question (question + 4 options + answer) — keep it tight
+        max_tokens = min(base_tokens + qty * 40, 8000)
+    else:
+        max_tokens = base_tokens
 
     # ── Phase 2: Multi-source retrieval ──
     search_task = asyncio.create_task(_hybrid_search(message, k=k))
-    web_task = asyncio.create_task(_web_search_async(message))
+    # Skip web search for large quiz generations — adds latency, not needed for assessment content
+    if is_quiz and qty > 10:
+        web_task = None
+    else:
+        web_task = asyncio.create_task(_web_search_async(message))
 
     results = await search_task
 
@@ -730,10 +950,10 @@ async def ask(message: str, history: list = None, k: int = 5) -> dict:
     is_relevant = _is_relevant_result(results, message)
 
     web_context = ""
-    if not results or scored < 0.3 or not is_relevant:
+    if web_task and (not results or scored < 0.3 or not is_relevant):
         try:
             web_text = await asyncio.wait_for(web_task, timeout=1.5)
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, Exception):
             web_text = ""
         if web_text:
             prefix = "Web search results" if lang == "en" else "Resultados de busqueda web"
@@ -742,13 +962,13 @@ async def ask(message: str, history: list = None, k: int = 5) -> dict:
     # ── Phase 4: Generate answer ──
     if is_quiz:
         quiz_topic = message
-        quiz_prompt = _build_quiz_prompt(quiz_topic, context, lang)
-        answer = _query_llm(
+        quiz_prompt = _build_quiz_prompt(quiz_topic, context, lang, count=qty)
+        answer = await _query_llm(
             quiz_prompt, context, personality, history,
-            web_context, max_tokens=2048
+            web_context, max_tokens=max_tokens
         )
     else:
-        answer = _query_llm(
+        answer = await _query_llm(
             message, context, personality, history,
             web_context, max_tokens=max_tokens
         )
@@ -801,6 +1021,7 @@ async def ask(message: str, history: list = None, k: int = 5) -> dict:
         "web_knowledge_gained": web_knowledge_gained,
         "suggest_save": suggest_save,
         "is_quiz": is_quiz,
+        "topic": _extract_topic(message),
         "personality": {
             "interactions": personality["interactions_count"],
             "traits": personality["user_traits"][-3:],

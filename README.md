@@ -12,6 +12,7 @@ EA-Brain is a full-stack application that combines a React frontend with a Pytho
 
 - **📝 Markdown Notes** — Create, edit, search, and organize notes in folders
 - **🧠 RAG Engine** — AI-powered retrieval-augmented generation using DeepSeek, Groq, or Gemini
+- **📝 Quiz Generator** — Generates large multiple-choice quizzes (100+ questions) from your brain content, split into chunks for reliability. Download as `.md` or `.pdf`
 - **🕸️ Knowledge Graph** — Automatic discovery of connections between notes
 - **🎭 Evolving AI Assistant** — EAgis, your digital butler with an evolving personality
 - **📚 Knowledge Library** — Categorized reference material

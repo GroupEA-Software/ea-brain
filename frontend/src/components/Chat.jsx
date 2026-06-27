@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { chat, createNote } from '../api';
+import { chat, createNote, downloadChatPdf } from '../api';
 import '../styles/chat.css';
 
 const HISTORY_KEY = 'baul_chat_history';
@@ -62,7 +62,8 @@ export default function Chat() {
     });
     setLoading(true);
     try {
-      const data = await chat(msg);
+      const hist = messages.map(m => ({ role: m.role, content: m.content }));
+      const data = await chat(msg, hist);
       const sysMsg = {
         role: 'system',
         content: data.answer,
@@ -70,6 +71,8 @@ export default function Chat() {
         suggestSave: data.suggest_save,
         webSearchUsed: data.web_search_used,
         webKnowledgeGained: data.web_knowledge_gained,
+        topic: data.topic || 'respuesta',
+        fullContent: data.full_content || null,
         id: Date.now() + 1,
       };
       setMessages(prev => {
@@ -92,6 +95,29 @@ export default function Chat() {
     if (window.confirm('Borrar todo el historial de chat?')) {
       setMessages([]);
       localStorage.removeItem(HISTORY_KEY);
+    }
+  };
+
+  const makeFilename = (topic, ext) => {
+    const clean = topic.replace(/[^a-zA-Z0-9áéíóúñüÁÉÍÓÚÑÜ\s-]/g, '').trim().slice(0, 60).replace(/\s+/g, '-').toLowerCase();
+    return `EAgis-${clean || 'documento'}.${ext}`;
+  };
+
+  const downloadAsMd = (content, topic) => {
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = makeFilename(topic, 'md');
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadAsPdf = async (content, topic) => {
+    try {
+      await downloadChatPdf(content, makeFilename(topic, 'pdf'));
+    } catch (e) {
+      alert('Error al generar PDF: ' + e.message);
     }
   };
 
@@ -147,6 +173,12 @@ export default function Chat() {
                       {m.webSearchUsed && <span className="badge badge-web">🌐 Web</span>}
                       {m.webKnowledgeGained && <span className="badge badge-learn">🧠 Nuevo</span>}
                       {m.saved && <span className="badge badge-saved">✅ Guardado</span>}
+                      <button className="badge badge-dlmd" onClick={() => downloadAsMd(m.fullContent || m.content, m.topic)} title="Descargar como Markdown">
+                        ⬇️ .md
+                      </button>
+                      <button className="badge badge-dlpdf" onClick={() => downloadAsPdf(m.fullContent || m.content, m.topic)} title="Descargar como PDF">
+                        ⬇️ .pdf
+                      </button>
                       {m.suggestSave && !m.saved && (
                         <button className="badge badge-save" onClick={() => saveAsNote(m)} disabled={saving}>
                           {saving === m.content ? '⏳' : '📝 Guardar como nota'}

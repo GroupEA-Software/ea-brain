@@ -91,10 +91,11 @@ export async function uploadAudio(file, language = '') {
   return res.json();
 }
 
-export function chat(message) {
+export function chat(message, history = []) {
+  const hist = history.length > 0 ? `&history=${encodeURIComponent(JSON.stringify(history))}` : '';
   return request('/api/chat', {
     method: 'POST',
-    body: `message=${encodeURIComponent(message)}`,
+    body: `message=${encodeURIComponent(message)}${hist}`,
   });
 }
 
@@ -186,6 +187,30 @@ export function listKnowledge() {
 
 export function getKnowledgeNote(filename) {
   return request(`/api/knowledge/${encodeURIComponent(filename)}`);
+}
+
+// ── Chat download (PDF via backend) ──
+
+export async function downloadChatPdf(content, filename = '') {
+  const res = await fetch(`${API}/api/chat/download`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, format: 'pdf', filename }),
+  });
+  if (!res.ok) throw new Error(`PDF download failed: ${res.status}`);
+
+  // Extract filename from Content-Disposition header, or fallback
+  const cd = res.headers.get('Content-Disposition') || '';
+  const match = cd.match(/filename="?([^";\n]+)"?/);
+  const dlName = match ? match[1] : `EAgis-${Date.now()}.${res.headers.get('Content-Type')?.includes('pdf') ? 'pdf' : 'html'}`;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = dlName;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Personality (EAgis state) ──
