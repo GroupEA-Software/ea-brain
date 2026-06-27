@@ -19,11 +19,16 @@ from backend.routes.brain import router as brain_router
 from backend.routes.repos import router as repos_router
 from backend.routes.knowledge import router as knowledge_router
 from backend.routes.personality import router as personality_router
+from backend.routes.v2.chat import router as chat_v2_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("[Baul] Super Cerebro iniciando...")
+    # Initialize hexagonal architecture container
+    from backend.application.app import ensure_built
+    ensure_built()
+    print("[Baul] Application container initialized")
     count = await rebuild_index()
     print(f"[Baul] Indice vectorial reconstruido: {count} documentos")
     from backend.config import CONNECTOR_INTERVAL
@@ -78,6 +83,7 @@ app.include_router(brain_router)
 app.include_router(repos_router)
 app.include_router(knowledge_router)
 app.include_router(personality_router)
+app.include_router(chat_v2_router)
 
 
 # WebSocket for real-time chat
