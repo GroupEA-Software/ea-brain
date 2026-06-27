@@ -1,0 +1,72 @@
+.agents-layout { display: flex; gap: 24px; padding: 24px 32px; flex-wrap: wrap; }
+
+.agent-card {
+  flex: 1;
+  min-width: 300px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.agent-card.connector { border-left: 3px solid var(--accent-blue); }
+.agent-card.evolver { border-left: 3px solid var(--accent-green); }
+.agent-card.transcriber { border-left: 3px solid var(--accent-purple); }
+
+.agent-header {
+  display: flex; align-items: center; gap: 14px;
+  padding: 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.agent-icon { font-size: 32px; }
+.agent-info { flex: 1; }
+.agent-info h3 { font-size: 16px; font-weight: 600; }
+.agent-info p { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+
+.agent-status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.agent-status-badge.idle { background: rgba(136, 136, 168, 0.1); color: var(--text-secondary); }
+.agent-status-badge.running { background: rgba(34, 211, 160, 0.1); color: var(--accent-green); }
+.agent-status-badge.error { background: rgba(239, 68, 68, 0.1); color: var(--accent-red); }
+
+.agent-body { padding: 20px; }
+
+.agent-metrics { display: flex; gap: 16px; margin-bottom: 16px; }
+
+.metric { text-align: center; }
+.metric-value { display: block; font-size: 14px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+.metric-label { font-size: 11px; color: var(--text-muted); }
+
+.agent-result {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(0, 212, 255, 0.05);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--accent-blue);
+  display: none;
+}
+
+.agent-result.show { display: block; animation: fadeIn 0.3s ease; }
+
+@media (max-width: 767px) {
+  .agents-layout { flex-direction: column; padding: 12px 14px; gap: 12px; overflow-y: auto; }
+  .agent-card { min-width: 0; }
+  .agent-header { padding: 14px; }
+  .agent-icon { font-size: 24px; }
+  .agent-info h3 { font-size: 14px; }
+  .agent-body { padding: 14px; }
+  .agent-metrics { gap: 12px; }
+}
+
+.btn-sm { font-size: 12px; padding: 6px 12px; }
+
+@media (min-width: 768px) {
+  .agents-layout { flex-direction: row; padding: 24px 32px; gap: 24px; }
+}

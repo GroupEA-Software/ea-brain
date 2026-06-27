@@ -1,0 +1,53 @@
+# openspec/config.yaml
+schema: spec-driven
+
+context: |
+  Tech stack: Python/FastAPI backend + React/Vite frontend
+  Architecture: Monolithic web app with async FastAPI, local file-based brain (markdown notes +
+    faiss vector index), multi-provider LLM orchestration (OpenCode Zen, Groq, Gemini, Ollama).
+    Knowledge graph at brain/connections/ with auto-connector and evolver agents.
+  Testing: None detected — no test runner, no CI, no linter, no formatter. TDD unavailable until
+    tooling is installed.
+  Style: Python async (httpx, aiofiles), React functional components with vanilla CSS modules.
+    Knowledge notes use YAML frontmatter, wikilinks, atomic note-taking convention.
+  Rename planned: "Baul — Super Cerebro" -> "EA-Brain", license -> AGPL v3
+
+strict_tdd: false
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Document migration steps for the rename (Baul -> EA-Brain)
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    - Follow existing code patterns
+    tdd: false
+    test_command: ""
+  verify:
+    test_command: ""
+    build_command: "cd frontend && npm run build"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+
+testing:
+  strict_tdd: false
+  runner: null
+  available: false
+  layers:
+    unit: false
+    integration: false
+    e2e: false
+  coverage: false
+  quality:
+    linter: false
+    type_checker: false
+    formatter: false

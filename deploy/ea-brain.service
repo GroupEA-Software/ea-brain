@@ -1,0 +1,33 @@
+[Unit]
+Description=EA-Brain — Digital Brain
+Documentation=https://github.com/GroupEA-Software/ea-brain
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=ea-brain
+Group=ea-brain
+WorkingDirectory=/opt/ea-brain
+Environment=PATH=/opt/ea-brain/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/opt/ea-brain/.env
+ExecStart=/opt/ea-brain/.venv/bin/uvicorn backend.main:app \
+  --host 0.0.0.0 \
+  --port 3000 \
+  --workers 2 \
+  --log-level info
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Security
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=no
+PrivateTmp=yes
+ReadWritePaths=/opt/ea-brain/brain
+ReadWritePaths=/opt/ea-brain/.env
+
+[Install]
+WantedBy=multi-user.target
