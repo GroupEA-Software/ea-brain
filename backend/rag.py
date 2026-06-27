@@ -22,6 +22,9 @@ from backend.config import (
     BRAIN_NOTES, KNOWLEDGE_DIRS, PERSONALITY_PATH,
 )
 from backend.vector_store import search as vector_search
+from backend.infrastructure.logger import get_logger
+
+_log = get_logger("rag")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -119,8 +122,8 @@ def _get_note_content(note_name: str) -> Optional[str]:
                             if file_path.lower() in str(f.relative_to(cat_dir)).lower() or \
                                file_path.lower() in f.stem.lower():
                                 return f.read_text(encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning("Failed to read note '%s': %s", note_name, e)
     return None
 
 
@@ -155,8 +158,8 @@ def _load_personality() -> dict:
             data = json.loads(PERSONALITY_PATH.read_text(encoding="utf-8"))
             if data.get("version", 0) >= 2:
                 return data
-    except Exception:
-        pass
+    except (json.JSONDecodeError, OSError) as e:
+        _log.error("Failed to load personality, using defaults: %s", e)
     p = _default_personality()
     _save_personality(p)
     return p
@@ -169,8 +172,8 @@ def _save_personality(p: dict):
         PERSONALITY_PATH.write_text(
             json.dumps(p, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-    except Exception:
-        pass
+    except Exception as e:
+        _log.error("Failed to save personality: %s", e)
 
 
 def _update_personality(p: dict, message: str, answer: str, lang: str, topics: list):
@@ -566,7 +569,8 @@ def _web_search(query: str, max_results: int = 5) -> str:
             if title or snippet:
                 lines.append(f"- **{title}**\n  {snippet}\n  <{href}>")
         return "\n".join(lines)
-    except Exception:
+    except Exception as e:
+        _log.warning("Web search failed: %s", e)
         return ""
 
 
@@ -594,7 +598,8 @@ def _call_openai_compat(api_key: str, base_url: str, model: str,
             max_tokens=max_tokens,
         )
         return resp.choices[0].message.content
-    except Exception:
+    except Exception as e:
+        _log.warning("OpenAI compat call failed (%s/%s): %s", base_url, model, e)
         return None
 
 
@@ -617,7 +622,8 @@ def _call_gemini(messages: list) -> Optional[str]:
             chat_history.insert(1, {"role": "model", "parts": ["Understood."]})
         resp = model.generate_content(chat_history)
         return resp.text.strip() if resp.text else None
-    except Exception:
+    except Exception as e:
+        _log.warning("Gemini call failed: %s", e)
         return None
 
 

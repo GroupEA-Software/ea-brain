@@ -242,14 +242,16 @@ async def consolidate_from_conversation(conversation_pairs: list) -> Optional[st
 # ---------------------------------------------------------------------------
 
 _RUNNING = False
+_evolution_lock = asyncio.Lock()
 
 
 async def background_evolution_loop(interval_seconds: int = 1800):
     """Run evolution tasks periodically in the background."""
     global _RUNNING
-    if _RUNNING:
-        return
-    _RUNNING = True
+    async with _evolution_lock:
+        if _RUNNING:
+            return
+        _RUNNING = True
 
     logger.info(f"[Evolution] Background loop started (interval={interval_seconds}s)")
 

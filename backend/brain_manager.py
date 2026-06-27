@@ -8,6 +8,9 @@ from datetime import datetime
 from typing import List, Optional
 import aiofiles
 from backend.config import BRAIN_NOTES, BRAIN_INBOX, BRAIN_CONNECTIONS, BRAIN_META, KNOWLEDGE_DIRS
+from backend.infrastructure.logger import get_logger
+
+_log = get_logger("brain_manager")
 
 
 SYSTEM_PREFIX = "_"
@@ -200,7 +203,8 @@ async def get_all_note_texts(include_knowledge: bool = True) -> List[dict]:
                     escaped_rel = str(rel).replace("\\", "/")
                     filename = f"__conocimiento__/{category_name}/{escaped_rel}"
                     texts.append({"filename": filename, "content": text})
-                except Exception:
+                except Exception as e:
+                    _log.warning("Failed to read knowledge note %s: %s", f, e)
                     continue
 
     return texts
@@ -397,8 +401,10 @@ async def export_note_pdf(filename: str) -> Optional[bytes]:
             pdf_bytes = HTML(string=styled).write_pdf()
             return pdf_bytes
         except ImportError:
+            _log.warning("weasyprint not installed, cannot export PDF")
             return None
     except ImportError:
+        _log.warning("markdown library not installed for PDF export")
         return None
 
 
@@ -418,6 +424,7 @@ async def export_note_html(filename: str) -> Optional[str]:
         styled = f"""<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>{title}</title><style>{_EXPORT_CSS}</style></head><body>{html_body}{footer}</body></html>"""
         return styled
     except ImportError:
+        _log.warning("markdown library not installed for HTML export, returning raw markdown")
         return md_text
 
 

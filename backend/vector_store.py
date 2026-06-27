@@ -8,6 +8,9 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 from backend.config import BRAIN_META, EMBEDDING_MODEL, VECTOR_DIM
+from backend.infrastructure.logger import get_logger
+
+_log = get_logger("vector_store")
 
 INDEX_PATH = BRAIN_META / "vectors.index"
 META_PATH = BRAIN_META / "documents.json"
@@ -16,6 +19,7 @@ _model = None
 _index = None
 _documents: list = []
 _executor = ThreadPoolExecutor(max_workers=1)
+_index_lock = asyncio.Lock()
 
 
 def _get_model():
@@ -120,43 +124,48 @@ async def embed_text(text: str) -> np.ndarray:
 
 
 async def add_document(filename: str, content: str):
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(_executor, _add_sync, filename, content)
+    async with _index_lock:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_executor, _add_sync, filename, content)
 
 
 async def remove_document(filename: str):
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(_executor, _remove_sync, filename)
+    async with _index_lock:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_executor, _remove_sync, filename)
 
 
 async def search(query: str, k: int = 5) -> List[dict]:
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(_executor, _search_sync, query, k)
+    async with _index_lock:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(_executor, _search_sync, query, k)
 
 
 async def rebuild_index():
     global _documents, _index
-    import faiss
-    from backend.brain_manager import get_all_note_texts
+    async with _index_lock:
+        import faiss
+        from backend.brain_manager import get_all_note_texts
 
-    _documents = []
-    _index = faiss.IndexFlatL2(VECTOR_DIM)
+        _documents = []
+        _index = faiss.IndexFlatL2(VECTOR_DIM)
 
-    try:
-        notes = await get_all_note_texts()
-        for note in notes:
-            loop = asyncio.get_event_loop()
-            vec = (await loop.run_in_executor(_executor, _embed_sync, note["content"])).reshape(1, -1).astype(np.float32)
-            _documents.append({
-                "filename": note["filename"],
-                "content": note["content"][:500],
-                "updated": datetime.now().isoformat(),
-            })
-            _index.add(vec)
-        _save_state()
-        return len(_documents)
-    except Exception as e:
-        return 0
+        try:
+            notes = await get_all_note_texts()
+            for note in notes:
+                loop = asyncio.get_event_loop()
+                vec = (await loop.run_in_executor(_executor, _embed_sync, note["content"])).reshape(1, -1).astype(np.float32)
+                _documents.append({
+                    "filename": note["filename"],
+                    "content": note["content"][:500],
+                    "updated": datetime.now().isoformat(),
+                })
+                _index.add(vec)
+            _save_state()
+            return len(_documents)
+        except Exception as e:
+            _log.error("Rebuild index failed: %s", e)
+            return 0
 
 
 def get_stats() -> dict:

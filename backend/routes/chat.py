@@ -30,6 +30,7 @@ class DownloadRequest(BaseModel):
 
 # Keep last conversation for evolution learning
 _last_conversation: list = []
+_chat_lock = asyncio.Lock()
 
 
 @router.on_event("startup")
@@ -148,10 +149,11 @@ async def api_chat(message: str = Form(""), history: str = Form("")):
 
     # --- Autonomous learning: consolidate from conversation ---
     if hist:
-        _last_conversation = hist[-6:] + [
-            {"role": "user", "content": message},
-            {"role": "assistant", "content": result.get("answer", "")},
-        ]
+        async with _chat_lock:
+            _last_conversation = hist[-6:] + [
+                {"role": "user", "content": message},
+                {"role": "assistant", "content": result.get("answer", "")},
+            ]
         # Fire-and-forget consolidation (non-blocking)
         asyncio.create_task(_learn_from_conversation())
 
@@ -161,12 +163,13 @@ async def api_chat(message: str = Form(""), history: str = Form("")):
 async def _learn_from_conversation():
     """Non-blocking evolution trigger."""
     global _last_conversation
-    try:
-        draft = await consolidate_from_conversation(_last_conversation)
-        if draft:
-            logger.info(f"[Evolution] Created draft note from conversation: {draft}")
-    except Exception as e:
-        logger.warning(f"[Evolution] Consolidation skipped: {e}")
+    async with _chat_lock:
+        try:
+            draft = await consolidate_from_conversation(_last_conversation)
+            if draft:
+                logger.info(f"[Evolution] Created draft note from conversation: {draft}")
+        except Exception as e:
+            logger.warning(f"[Evolution] Consolidation skipped: {e}")
 
 
 @router.get("/evolution/stats")
